@@ -1,1 +1,1 @@
-## This is educational crate for me to understand `Tokio`.
+This is an educational repository for me to understand [Tokio](https://tokio.rs/) & [Rust](https://www.rust-lang.org/).
