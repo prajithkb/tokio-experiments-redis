@@ -15,6 +15,8 @@
 //!
 //! See [Type] for the different data types
 
+use std::{collections::LinkedList, error::Error, fmt::Display};
+
 /// The RESP data type
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type {
@@ -34,8 +36,8 @@ pub enum Type {
     /// This type is just a CRLF terminated string representing an integer, prefixed by a ":" byte.
     ///
     ///Example: `":1000\r\n"`
-    Integer(u64),
-    /// A special value 
+    Integer(i64),
+    /// A special value
     Null,
     /// Bulk Strings are used in order to represent a single binary safe string up to 512 MB in length.
     /// Bulk Strings are encoded in the following way:
@@ -55,5 +57,274 @@ pub enum Type {
     /// A * character as the first byte, followed by the number of elements in the array as a decimal number, followed by CRLF.
     /// An additional RESP type for every element of the Array.
     /// It can contain mixed types
-    Array(Vec<Type>),
+    Array(LinkedList<Type>),
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{:?}", self))
+    }
+}
+/// Holds the data for `from`  and `to` for [TypeConsumerError::ConversionFailed]
+#[derive(Debug, PartialEq)]
+pub struct ConversionFailed{ from: String, to: String }
+
+/// The possible errors emitted by [TypeConsumer
+#[derive(Debug, PartialEq)]
+pub enum TypeConsumerError {
+    /// Indicates that conversion has failed (e.g. string to integer)
+    ConversionFailed(ConversionFailed),
+    /// Indicates that the consumer is empty (this happens if you can `next` on a consumer that has finished)
+    Empty,
+}
+
+impl Error for TypeConsumerError {}
+
+impl Display for TypeConsumerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{:?}", self))
+    }
+}
+
+/// Creates a consumer that provides a `Iterator` like API for getting the next Type
+//
+/// Each [Type] is stored as a token. It provides convenient methods to extract `String`, `Integer` or `Bytes`
+#[derive(Debug, PartialEq)]
+pub struct TypeConsumer {
+    inner: Option<Type>,
+}
+
+impl TypeConsumer {
+    /// Creates a new instance of [TypeConsumer]
+    pub fn new(t: Type) -> Self {
+        TypeConsumer { inner: Some(t) }
+    }
+
+    /// Returns the next token as a [String] if possible or an error otherwise
+    pub fn next_string(&mut self) -> Result<String, TypeConsumerError> {
+        self.next_token::<String>(next_string)
+    }
+    /// Returns the next token as a [i64] if possible or an error otherwise
+    pub fn next_integer(&mut self) -> Result<i64, TypeConsumerError> {
+        self.next_token::<i64>(next_integer)
+    }
+    /// Returns the next token as a Bytes ([Vec]) if possible or an error otherwise
+    pub fn next_bytes(&mut self) -> Result<Vec<u8>, TypeConsumerError> {
+        self.next_token::<Vec<u8>>(next_bytes)
+    }
+
+    fn next_token<T>(
+        &mut self,
+        extractor: fn(Type) -> Result<T, TypeConsumerError>,
+    ) -> Result<T, TypeConsumerError> {
+        match &mut self.inner {
+            Some(t) => match t {
+                Type::Array(values) => next_token_from_values::<T>(values, extractor),
+                _ => extractor(self.inner.take().expect("Cannot be None")),
+            },
+            _ => Err(TypeConsumerError::Empty),
+        }
+    }
+}
+
+/** Utility methods **/
+
+fn next_token_from_values<T>(
+    values: &mut LinkedList<Type>,
+    extractor: fn(Type) -> Result<T, TypeConsumerError>,
+) -> Result<T, TypeConsumerError> {
+    match values.pop_front() {
+        Some(t) => extractor(t),
+        _ => Err(TypeConsumerError::Empty),
+    }
+}
+
+fn next_bytes(value: Type) -> Result<Vec<u8>, TypeConsumerError> {
+    match value {
+        Type::SimpleString(s) => Ok(s.into()),
+        Type::BulkString(s) => Ok(s),
+        _ => Err(cannot_convert_err(value.to_string(), "Bytes")),
+    }
+}
+fn next_integer(value: Type) -> Result<i64, TypeConsumerError> {
+    let v = value.to_string();
+    match value {
+        Type::SimpleString(s) => {
+            atoi::atoi(s.as_bytes()).ok_or_else(|| cannot_convert_err(v, "Integer"))
+        }
+        Type::BulkString(s) => atoi::atoi(&s).ok_or_else(|| cannot_convert_err(v, "Integer")),
+        Type::Integer(s) => Ok(s),
+        _ => Err(cannot_convert_err(v, "Integer")),
+    }
+}
+fn next_string(value: Type) -> Result<String, TypeConsumerError> {
+    let v = value.to_string();
+    match value {
+        Type::SimpleString(s) => Ok(s),
+        Type::Integer(i) => Ok(i.to_string()),
+        Type::BulkString(s) => {
+            Ok(String::from_utf8(s).map_err(|_| cannot_convert_err(v, "String"))?)
+        }
+        _ => Err(cannot_convert_err(v, "String")),
+    }
+}
+
+fn cannot_convert_err(from: String, to: &str) -> TypeConsumerError {
+    TypeConsumerError::ConversionFailed(ConversionFailed {
+        from,
+        to: to.into(),
+    })
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::LinkedList;
+
+    use super::{Type, TypeConsumer, TypeConsumerError};
+    use super::ConversionFailed;
+    #[test]
+    fn next_string_works() {
+        // String
+        let t = Type::SimpleString("Hello".into());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_string(), Ok("Hello".to_string()));
+        assert_eq!(type_consumer.next_string(), Err(TypeConsumerError::Empty));
+
+        // Bulk string
+        let t = Type::BulkString(b"Hello".to_vec());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_string(), Ok("Hello".to_string()));
+        assert_eq!(type_consumer.next_string(), Err(TypeConsumerError::Empty));
+
+        // Integer
+        let t = Type::Integer(34);
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(
+            type_consumer.next_bytes(),
+            Err(TypeConsumerError::ConversionFailed(ConversionFailed {
+                from: "Integer(34)".into(),
+                to: "Bytes".into()
+            }))
+        );
+
+        // Array
+        let t = Type::Array(LinkedList::new());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
+
+        let t = Type::Array(
+            vec![Type::SimpleString("Hello".into())]
+                .into_iter()
+                .collect(),
+        );
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_string(), Ok("Hello".to_string()));
+        assert_eq!(type_consumer.next_string(), Err(TypeConsumerError::Empty));
+        // Null
+        let t = Type::Null;
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(
+            type_consumer.next_string(),
+            Err(TypeConsumerError::ConversionFailed(ConversionFailed {
+                from: "Null".into(),
+                to: "String".into()
+            }))
+        );
+    }
+
+    #[test]
+    fn next_integer_works() {
+        // String
+        let t = Type::SimpleString("Hello".into());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(
+            type_consumer.next_integer(),
+            Err(TypeConsumerError::ConversionFailed(ConversionFailed {
+                from: "SimpleString(\"Hello\")".into(),
+                to: "Integer".into()
+            }))
+        );
+
+        // Bulk string
+        let t = Type::BulkString(b"Hello".to_vec());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(
+            type_consumer.next_integer(),
+            Err(TypeConsumerError::ConversionFailed(ConversionFailed {
+                from: "BulkString([72, 101, 108, 108, 111])".into(),
+                to: "Integer".into()
+            }))
+        );
+
+        // Integer
+        let t = Type::Integer(34);
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_integer(), Ok(34));
+        assert_eq!(type_consumer.next_integer(), Err(TypeConsumerError::Empty));
+
+        // Array
+        let t = Type::Array(LinkedList::new());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_integer(), Err(TypeConsumerError::Empty));
+
+        let t = Type::Array(vec![Type::Integer(34)].into_iter().collect());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_integer(), Ok(34));
+        assert_eq!(type_consumer.next_integer(), Err(TypeConsumerError::Empty));
+        // Null
+        let t = Type::Null;
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(
+            type_consumer.next_string(),
+            Err(TypeConsumerError::ConversionFailed(ConversionFailed {
+                from: "Null".into(),
+                to: "String".into()
+            }))
+        );
+    }
+
+    #[test]
+    fn next_bytes_works() {
+        // String
+        let t = Type::SimpleString("Hello".into());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_bytes(), Ok("Hello".as_bytes().to_vec()));
+        assert_eq!(type_consumer.next_integer(), Err(TypeConsumerError::Empty));
+        // Bulk string
+        let t = Type::BulkString(b"Hello".to_vec());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_bytes(), Ok("Hello".as_bytes().to_vec()));
+        assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
+
+        // Integer
+        let t = Type::Integer(34);
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(
+            type_consumer.next_bytes(),
+            Err(TypeConsumerError::ConversionFailed(ConversionFailed {
+                from: "Integer(34)".into(),
+                to: "Bytes".into()
+            }))
+        );
+
+        // Array
+        let t = Type::Array(LinkedList::new());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
+
+        let t = Type::Array(vec![Type::BulkString(b"Hello".to_vec())].into_iter().collect());
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(type_consumer.next_bytes(), Ok("Hello".as_bytes().to_vec()));
+        assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
+        // Null
+        let t = Type::Null;
+        let mut type_consumer = TypeConsumer::new(t);
+        assert_eq!(
+            type_consumer.next_string(),
+            Err(TypeConsumerError::ConversionFailed(ConversionFailed {
+                from: "Null".into(),
+                to: "String".into()
+            }))
+        );
+    }
 }

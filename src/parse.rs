@@ -3,7 +3,7 @@
 use crate::resp::Type;
 use atoi::atoi;
 use bytes::Buf;
-use std::io::Cursor;
+use std::{collections::LinkedList, io::Cursor};
 use std::{
     collections::VecDeque,
     convert::TryInto,
@@ -109,10 +109,10 @@ impl Parse {
             b'*' => {
                 let line = get_line(bytes)?;
                 let number_of_elements: usize = atoi::atoi(line).ok_or(ParseError::NotAnInteger)?;
-                let mut types_array: Vec<Type> = Vec::with_capacity(number_of_elements);
+                let mut types_array: LinkedList<Type> = LinkedList::new();
                 for _ in 0..number_of_elements {
                     match self.parse_next(bytes) {
-                        Ok(t) => types_array.push(t),
+                        Ok(t) => types_array.push_back(t),
                         Err(e) => {
                             match e {
                                 // in case of array, either of these mean incomplete
@@ -186,7 +186,7 @@ fn parse_integer(bytes: Vec<u8>) -> Result<Type, ParseError> {
 fn parse_bulk_string(bytes: Vec<u8>) -> Result<Type, ParseError> {
     Ok(Type::BulkString(bytes))
 }
-fn parse_array(types: Vec<Type>) -> Result<Type, ParseError> {
+fn parse_array(types: LinkedList<Type>) -> Result<Type, ParseError> {
     Ok(Type::Array(types))
 }
 #[cfg(test)]
@@ -254,7 +254,7 @@ mod test {
         fn parse_integer_works() {
             // success
             let t = parse_integer(b"100"[..].to_vec());
-            assert_eq!(t, Ok(Type::Integer(100u64)));
+            assert_eq!(t, Ok(Type::Integer(100i64)));
         }
 
         #[test]
@@ -266,7 +266,7 @@ mod test {
 
         #[test]
         fn parse_array_works() {
-            let a = vec![Type::SimpleString("a".into()), Type::Integer(3)];
+            let a: LinkedList<Type> = vec![Type::SimpleString("a".into()), Type::Integer(3)].into_iter().collect();
             // success
             let t = parse_array(a.clone());
             assert_eq!(t, Ok(Type::Array(a)));
@@ -305,12 +305,12 @@ mod test {
             let mut test = Cursor::new(&b":12345\r\n"[..]);
             let mut parse = Parse::new();
             let t = parse.parse_next(&mut test);
-            assert_eq!(t, Ok(Type::Integer(12345u64)));
+            assert_eq!(t, Ok(Type::Integer(12345i64)));
             // Success (partial integer)
             let mut test = Cursor::new(&b":123s45\r\n"[..]);
             let mut parse = Parse::new();
             let t = parse.parse_next(&mut test);
-            assert_eq!(t, Ok(Type::Integer(123u64)));
+            assert_eq!(t, Ok(Type::Integer(123i64)));
             // Error (incomplete)
             let mut test = Cursor::new(&b":12345"[..]);
             let mut parse = Parse::new();
@@ -358,10 +358,10 @@ mod test {
             let mut test = Cursor::new(&b"*2\r\n$4\r\nLLEN\r\n$6\r\nmylist\r\n"[..]);
             let mut parse = Parse::new();
             let t = parse.parse_next(&mut test);
-            let types: Vec<Type> = vec![
+            let types: LinkedList<Type> = vec![
                 Type::BulkString(b"LLEN"[..].into()),
                 Type::BulkString(b"mylist"[..].into()),
-            ];
+            ].into_iter().collect();
             assert_eq!(t, Ok(Type::Array(types)));
             // error
             let mut test = Cursor::new(&b"*4\r\n$4\r\nLLEN\r\n$6\r\nmylist\r\n"[..]);
