@@ -17,7 +17,7 @@ name = "mini-redis-server"
 path = "src/bin/server.rs"
 
 [dependencies]
-atoi = "0.3.2"
+atoi = "0.4.0"
 bytes = "1"
 log = "0.4"
 structopt = "0.3.14"

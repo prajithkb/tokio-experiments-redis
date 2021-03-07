@@ -4,6 +4,7 @@
 
 pub mod resp;
 pub mod commands;
+pub mod parse;
 
 ///
 /// When writing a real application, one might want to consider a specialized
