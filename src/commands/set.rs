@@ -3,7 +3,8 @@
 use std::collections::LinkedList;
 
 use crate::resp::{Type, TypeConsumer};
-use crate::Result;
+
+use super::CommandError;
 /// Holds key and value required for the [Set command](super::Command::Set)
 #[derive(Debug, PartialEq)]
 pub struct Set {
@@ -13,9 +14,9 @@ pub struct Set {
 
 impl Set {
     /// Returns an instance of [super::get::Get] 
-    pub fn from(type_consumer: &mut TypeConsumer) -> Result<Self> {
-        let key = type_consumer.next_string()?;
-        let value = type_consumer.next_string()?;
+    pub fn from(type_consumer: &mut TypeConsumer) -> Result<Self, CommandError> {
+        let key = type_consumer.next_string().map_err(|t| CommandError::InvalidFrame(t, "key"))?;
+        let value = type_consumer.next_string().map_err(|t|CommandError::InvalidFrame(t, "value"))?;
         Ok(Set { key, value })
     }
 }
@@ -32,7 +33,8 @@ impl From<Set> for Type {
 
 #[cfg(test)]
 mod test {
-    use crate::resp::{Type, TypeConsumer};
+    use crate::resp::{Type, TypeConsumer, TypeConsumerError};
+    use super::CommandError;
 
     use super::Set;
 
@@ -51,6 +53,25 @@ mod test {
                 key: "Hello".into(),
                 value: "World".into()
             }
+        );
+        let mut tc = TypeConsumer::new(Type::Array(vec![
+        ]
+        .into_iter()
+        .collect()));
+        let set = Set::from(&mut tc);
+        assert_eq!(
+            set,
+            Err(CommandError::InvalidFrame(TypeConsumerError::Empty, "key"))
+        );
+        let mut tc = TypeConsumer::new(Type::Array(vec![
+            Type::BulkString(b"Hello".to_vec()),
+        ]
+        .into_iter()
+        .collect()));
+        let set = Set::from(&mut tc);
+        assert_eq!(
+            set,
+            Err(CommandError::InvalidFrame(TypeConsumerError::Empty, "value"))
         )
     }
 

@@ -67,7 +67,7 @@ impl Display for Type {
 }
 /// Holds the data for `from`  and `to` for [TypeConsumerError::ConversionFailed]
 #[derive(Debug, PartialEq)]
-pub struct ConversionFailed{ from: String, to: String }
+pub struct ConversionFailed{ pub(crate) from: String, pub(crate) to: &'static str }
 
 /// The possible errors emitted by [TypeConsumer
 #[derive(Debug, PartialEq)]
@@ -169,10 +169,10 @@ fn next_string(value: Type) -> Result<String, TypeConsumerError> {
     }
 }
 
-fn cannot_convert_err(from: String, to: &str) -> TypeConsumerError {
+fn cannot_convert_err(from: String, to: &'static str) -> TypeConsumerError {
     TypeConsumerError::ConversionFailed(ConversionFailed {
         from,
-        to: to.into(),
+        to,
     })
 }
 
@@ -203,7 +203,7 @@ mod test {
             type_consumer.next_bytes(),
             Err(TypeConsumerError::ConversionFailed(ConversionFailed {
                 from: "Integer(34)".into(),
-                to: "Bytes".into()
+                to: "Bytes"
             }))
         );
 
@@ -227,7 +227,7 @@ mod test {
             type_consumer.next_string(),
             Err(TypeConsumerError::ConversionFailed(ConversionFailed {
                 from: "Null".into(),
-                to: "String".into()
+                to: "String"
             }))
         );
     }
@@ -241,7 +241,7 @@ mod test {
             type_consumer.next_integer(),
             Err(TypeConsumerError::ConversionFailed(ConversionFailed {
                 from: "SimpleString(\"Hello\")".into(),
-                to: "Integer".into()
+                to: "Integer"
             }))
         );
 
@@ -252,7 +252,7 @@ mod test {
             type_consumer.next_integer(),
             Err(TypeConsumerError::ConversionFailed(ConversionFailed {
                 from: "BulkString([72, 101, 108, 108, 111])".into(),
-                to: "Integer".into()
+                to: "Integer"
             }))
         );
 
@@ -278,7 +278,7 @@ mod test {
             type_consumer.next_string(),
             Err(TypeConsumerError::ConversionFailed(ConversionFailed {
                 from: "Null".into(),
-                to: "String".into()
+                to: "String"
             }))
         );
     }
@@ -303,7 +303,7 @@ mod test {
             type_consumer.next_bytes(),
             Err(TypeConsumerError::ConversionFailed(ConversionFailed {
                 from: "Integer(34)".into(),
-                to: "Bytes".into()
+                to: "Bytes"
             }))
         );
 
@@ -323,7 +323,7 @@ mod test {
             type_consumer.next_string(),
             Err(TypeConsumerError::ConversionFailed(ConversionFailed {
                 from: "Null".into(),
-                to: "String".into()
+                to: "String"
             }))
         );
     }
