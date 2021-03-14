@@ -2,13 +2,13 @@
 
 use std::collections::LinkedList;
 
-use crate::resp::{Type, TypeConsumer};
+use crate::{resp::{Type, TypeConsumer}};
 
 use super::CommandCreationError;
 /// Holds key required for the [Get command](super::Command::Get)
 #[derive(Debug, PartialEq)]
 pub struct Get {
-    key: String,
+    pub(crate) key: String,
 }
 
 impl Get {

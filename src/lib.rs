@@ -5,6 +5,9 @@
 pub mod resp;
 pub mod commands;
 pub mod parse;
+pub mod server;
+pub mod client;
+pub mod connection;
 
 ///
 /// When writing a real application, one might want to consider a specialized

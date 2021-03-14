@@ -8,8 +8,8 @@ use super::CommandCreationError;
 /// Holds key and value required for the [Set command](super::Command::Set)
 #[derive(Debug, PartialEq)]
 pub struct Set {
-    key: String,
-    value: String,
+    pub(crate) key: String,
+    pub(crate) value: String,
 }
 
 impl Set {

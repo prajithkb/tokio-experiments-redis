@@ -65,9 +65,73 @@ impl Display for Type {
         f.write_fmt(format_args!("{:?}", self))
     }
 }
+
+impl Type {
+    /// Returns this Type as bytes
+    pub fn into_bytes(self) -> Vec<u8> {
+        match self {
+            Type::SimpleString(s) => Type::simple_string(s),
+            Type::Error(s) => Type::error(s),
+            Type::Integer(i) => Type::integer(i),
+            Type::Null => Type::null(),
+            Type::BulkString(b) => Type::bulk_string(b),
+            Type::Array(a) => Type::array(a),
+        }
+    }
+
+    fn simple_string(s: String) -> Vec<u8> {
+        format!("+{}\r\n", s).into()
+    }
+
+    fn error(s: String) -> Vec<u8> {
+        format!("-{}\r\n", s).into()
+    }
+
+    fn integer(i: i64) -> Vec<u8> {
+        format!(":{}\r\n", i.to_string()).into()
+    }
+
+    fn null() -> Vec<u8> {
+        "$-1\r\n".into()
+    }
+
+    fn bulk_string(mut i: Vec<u8>) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![b'$'];
+        // Add the number of bytes
+        let number_of_bytes = i.len().to_string().into_bytes();
+        number_of_bytes.iter().for_each(|&b| result.push(b));
+        cr_lf(&mut result);
+        // Add the payload
+        result.append(&mut i);
+        // Add the final marker
+        cr_lf(&mut result);
+        result
+    }
+
+    fn array(l: LinkedList<Type>) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![b'*'];
+        // Add the number of elements
+        let number_of_elements = l.len().to_string().into_bytes();
+        number_of_elements.iter().for_each(|&b| result.push(b));
+        cr_lf(&mut result);
+        for t in l {
+            result.append(&mut t.into_bytes());
+        }
+        result
+    }
+}
+
+fn cr_lf(result: &mut Vec<u8>) {
+    result.push(b'\r');
+    result.push(b'\n');
+}
+
 /// Holds the data for `from`  and `to` for [TypeConsumerError::ConversionFailed]
 #[derive(Debug, PartialEq)]
-pub struct ConversionFailed{ pub(crate) from: String, pub(crate) to: &'static str }
+pub struct ConversionFailed {
+    pub(crate) from: String,
+    pub(crate) to: &'static str,
+}
 
 /// The possible errors emitted by [TypeConsumer
 #[derive(Debug, PartialEq)]
@@ -170,18 +234,15 @@ fn next_string(value: Type) -> Result<String, TypeConsumerError> {
 }
 
 fn cannot_convert_err(from: String, to: &'static str) -> TypeConsumerError {
-    TypeConsumerError::ConversionFailed(ConversionFailed {
-        from,
-        to,
-    })
+    TypeConsumerError::ConversionFailed(ConversionFailed { from, to })
 }
 
 #[cfg(test)]
 mod test {
     use std::collections::LinkedList;
 
-    use super::{Type, TypeConsumer, TypeConsumerError};
     use super::ConversionFailed;
+    use super::{Type, TypeConsumer, TypeConsumerError};
     #[test]
     fn next_string_works() {
         // String
@@ -312,7 +373,11 @@ mod test {
         let mut type_consumer = TypeConsumer::new(t);
         assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
 
-        let t = Type::Array(vec![Type::BulkString(b"Hello".to_vec())].into_iter().collect());
+        let t = Type::Array(
+            vec![Type::BulkString(b"Hello".to_vec())]
+                .into_iter()
+                .collect(),
+        );
         let mut type_consumer = TypeConsumer::new(t);
         assert_eq!(type_consumer.next_bytes(), Ok("Hello".as_bytes().to_vec()));
         assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
@@ -325,6 +390,40 @@ mod test {
                 from: "Null".into(),
                 to: "String"
             }))
+        );
+    }
+
+    #[test]
+    fn into_bytes_works() {
+        // String
+        assert_eq!(
+            &Type::SimpleString("Ok".into()).into_bytes()[..],
+            b"+Ok\r\n"
+        );
+        // String
+        assert_eq!(&Type::Error("Ok".into()).into_bytes()[..], b"-Ok\r\n");
+        // String
+        assert_eq!(
+            &Type::BulkString("Ok".into()).into_bytes()[..],
+            b"$2\r\nOk\r\n",
+        );
+        // String
+        assert_eq!(&Type::Null.into_bytes()[..], b"$-1\r\n");
+        // Array
+        assert_eq!(
+            &Type::Array(
+                vec![
+                    Type::BulkString("Ok".into()),
+                    Type::BulkString("Ok".into()),
+                    Type::Null,
+                    Type::Error("Ok".into()),
+                    Type::SimpleString("Ok".into())
+                ]
+                .into_iter()
+                .collect()
+            )
+            .into_bytes()[..],
+            b"*5\r\n$2\r\nOk\r\n$2\r\nOk\r\n$-1\r\n-Ok\r\n+Ok\r\n"
         );
     }
 }
