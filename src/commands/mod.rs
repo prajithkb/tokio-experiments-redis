@@ -18,7 +18,7 @@ pub enum Command {
 }
 /// Used to indicate the different errors during the creation of a [Command]
 #[derive(Debug, PartialEq)]
-pub enum CommandError {
+pub enum CommandCreationError {
     /// an invalid Frame for the command
     /// Shows the error and the field for which the error occurred
     InvalidFrame(TypeConsumerError, &'static str)
