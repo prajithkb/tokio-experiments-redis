@@ -27,10 +27,6 @@ struct Cli {
 /// The `[tokio::main]` annotation signals that the Tokio runtime should be
 /// started when the function is called. The body of the function is executed
 /// within the newly spawned runtime.
-///
-/// `flavor = "current_thread"` is used here to avoid spawning background
-/// threads. The CLI tool use case benefits more by being lighter instead of
-/// multi-threaded.
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -47,20 +43,25 @@ async fn main() -> Result<()> {
     let mut buffer = [0; 512];
     loop {
         prompt();
+        // Allows for multi tasking between multiple branches
         tokio::select! {
             n = stdin.read(&mut buffer) => {
                 let num_bytes = n.unwrap();
                 let c = std::str::from_utf8(&buffer[0..num_bytes-1])?;
                 let v = send_command(c.into(), &mut client).await;
                 println!("=================================");
-                println!("Command execution result: {:?}", v);
-                println!("=================================");
-                if v.is_err() {
-                    let e :Box<CliError> = v.unwrap_err().downcast::<CliError>().unwrap();
-                    if let CliError::Quit = *e {
-                        break;
-                    } 
+                match v {
+                    Ok(t) => println!("Command: {}\nResult: {}", c, t.to_string()),
+                    Err(e) => {
+                        let e :Box<CliError> = e.downcast::<CliError>().unwrap();
+                        if let CliError::Quit = *e {
+                            break;
+                        } else {
+                            println!("Command execution failed: {}", e);
+                        }
+                    }
                 }
+                println!("=================================");
             }
         }
     }
@@ -76,7 +77,7 @@ fn prompt() {
 async fn send_command(command: String, client: &mut RedisClient) -> Result<Type> {
     let mut tokens = command.split(' ');
     if let Some(command) = tokens.next() {
-        return match command {
+        return match command.to_uppercase().as_ref() {
             "GET" => {
                 let key = tokens
                     .next()
@@ -90,10 +91,10 @@ async fn send_command(command: String, client: &mut RedisClient) -> Result<Type>
             "SET" => {
                 let key = tokens
                     .next()
-                    .ok_or_else(|| CliError::ClientError("key cannot be empty".into()))?;
+                    .ok_or_else(|| CliError::ClientError("key cannot be empty, SET key value".into()))?;
                 let value = tokens
                     .next()
-                    .ok_or_else(|| CliError::ClientError("value cannot be empty".into()))?;
+                    .ok_or_else(|| CliError::ClientError("value cannot be empty, SET key value".into()))?;
                 let t = client
                     .set(key.into(), value.into())
                     .await
@@ -101,7 +102,17 @@ async fn send_command(command: String, client: &mut RedisClient) -> Result<Type>
                 Ok(t)
             }
             "QUIT" => Err(CliError::Quit.into()),
-            _ => Err(CliError::ClientError(format!("Invalid command: {}", command)).into()),
+            "HELP" => Ok(Type::SimpleString(
+                r#"
+                HELP - This message
+                GET - GET <key>
+                SET - SET <key> <value>
+                "#
+                .into(),
+            )),
+            _ => Err(
+                CliError::ClientError(format!("Invalid command: <{}>, try HELP", command)).into(),
+            ),
         };
     }
     Err("Invalid Command".into())
@@ -118,6 +129,6 @@ impl Error for CliError {}
 
 impl Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}", self))
+        f.write_fmt(format_args!("{:?}", self))
     }
 }

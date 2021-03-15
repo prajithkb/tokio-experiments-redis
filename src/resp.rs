@@ -62,7 +62,14 @@ pub enum Type {
 
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{:?}", self))
+        match self {
+            Type::SimpleString(s) => f.write_str(&s),
+            Type::Error(s) => f.write_str(&s),
+            Type::Integer(i) => f.write_str(&i.to_string()),
+            Type::Null => f.write_str("Null"),
+            Type::BulkString(b) => f.write_fmt(format_args!("{:?}", b)),
+            Type::Array(a) =>f.write_fmt(format_args!("{:?}", a)),
+        }
     }
 }
 

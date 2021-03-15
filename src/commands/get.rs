@@ -1,9 +1,7 @@
 //! Get command. See [Get command](https://redis.io/commands/get) for official documentation
 
 use std::collections::LinkedList;
-
 use crate::{resp::{Type, TypeConsumer}};
-
 use super::CommandCreationError;
 /// Holds key required for the [Get command](super::Command::Get)
 #[derive(Debug, PartialEq)]

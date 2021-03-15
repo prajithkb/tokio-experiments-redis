@@ -8,6 +8,7 @@ pub mod parse;
 pub mod server;
 pub mod client;
 pub mod connection;
+pub(crate) mod database;
 
 ///
 /// When writing a real application, one might want to consider a specialized

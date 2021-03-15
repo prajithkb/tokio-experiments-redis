@@ -1,4 +1,5 @@
-//! This is the client module. 
+//! This is the client module.  
+//! This provides a simple [RedisClient] which supports the [super::commands::Command]
 
 
 use log::debug;

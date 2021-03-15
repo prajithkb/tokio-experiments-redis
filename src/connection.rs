@@ -1,5 +1,5 @@
 //! The connection module. 
-//! This module encapsulates a connection and provde convenient read write accesors
+//! This module encapsulates a connection and provides convenient (owned) read write accessors
 use std::io::Cursor;
 
 use log::{debug, info, trace};
@@ -26,13 +26,13 @@ pub struct ReadHalf {
 
 impl ReadHalf {
     /// Receives [Type] 
+    /// Attempts to wait for a value, returning an error if there is an error.
     pub async fn recv(&mut self) -> Result<Type> {
-        debug!("ReadHalf recv");
         // Read 512 bytes at a time
         let mut buf = [0; 512];
         let n = self.inner.read(&mut buf).await?;
         if n > 0 {
-            info!("Read {} bytes", n);
+            debug!("Read {} bytes", n);
             trace!("Read {} bytes, {:?}", n, std::str::from_utf8(&buf));
             let mut cur = Cursor::new(&buf[..]);
             let t = self.parse.parse_next(&mut cur)?;
@@ -49,10 +49,11 @@ pub struct WriteHalf {
 }
 impl WriteHalf {
     /// Sends the given [Type]
+    /// Attempts to write this type, returning the number of bytes written (or error).
     pub async fn send(&mut self, t: Type) -> Result<usize> {
         let bytes = t.into_bytes();
         let u = self.inner.write(&bytes).await?;
-        info!("Wrote {} bytes", u);
+        debug!("Wrote {} bytes", u);
         trace!("Wrote {} bytes, {:?}", u, std::str::from_utf8(&bytes));
         Ok(u)
     }

@@ -1,9 +1,7 @@
 //! Set command. See [Set command](https://redis.io/commands/set) for official documentation
 
 use std::collections::LinkedList;
-
 use crate::resp::{Type, TypeConsumer};
-
 use super::CommandCreationError;
 /// Holds key and value required for the [Set command](super::Command::Set)
 #[derive(Debug, PartialEq)]
