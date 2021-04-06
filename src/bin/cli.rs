@@ -6,6 +6,7 @@ use tokio_mini_redis::Result;
 use tokio_mini_redis::{client::RedisClient, resp::Type};
 
 use std::{
+    collections::LinkedList,
     error::Error,
     fmt::Display,
     io::{stdout, Write},
@@ -51,7 +52,7 @@ async fn main() -> Result<()> {
                 let v = send_command(c.into(), &mut client).await;
                 println!("=================================");
                 match v {
-                    Ok(t) => println!("Command: {}\nResult: {}", c, t.to_string()),
+                    Ok(t) => println!("Command=> {}\nResponse=> {}", c, print_type(t)),
                     Err(e) => {
                         let e :Box<CliError> = e.downcast::<CliError>().unwrap();
                         if let CliError::Quit = *e {
@@ -66,6 +67,13 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn print_type(t: Type) -> String {
+    match t {
+        Type::Error(message) => format!("Error: {}", message),
+        _ => t.to_string(),
+    }
 }
 
 fn prompt() {
@@ -89,14 +97,27 @@ async fn send_command(command: String, client: &mut RedisClient) -> Result<Type>
                 Ok(t)
             }
             "SET" => {
-                let key = tokens
-                    .next()
-                    .ok_or_else(|| CliError::ClientError("key cannot be empty, SET key value".into()))?;
-                let value = tokens
-                    .next()
-                    .ok_or_else(|| CliError::ClientError("value cannot be empty, SET key value".into()))?;
+                let key = tokens.next().ok_or_else(|| {
+                    CliError::ClientError("key cannot be empty, SET key value".into())
+                })?;
+                let value = tokens.next().ok_or_else(|| {
+                    CliError::ClientError("value cannot be empty, SET key value".into())
+                })?;
                 let t = client
                     .set(key.into(), value.into())
+                    .await
+                    .map_err(|e| CliError::ServerError(e.to_string()))?;
+                Ok(t)
+            }
+            "PUSH" => {
+                let list_name = tokens.next().ok_or_else(|| {
+                    CliError::ClientError(
+                        "list_name cannot be empty, PUSH list_name value1 value2..".into(),
+                    )
+                })?;
+                let values: LinkedList<String> = tokens.into_iter().map(|v| v.into()).collect();
+                let t = client
+                    .push(list_name.into(), values)
                     .await
                     .map_err(|e| CliError::ServerError(e.to_string()))?;
                 Ok(t)
@@ -107,6 +128,7 @@ async fn send_command(command: String, client: &mut RedisClient) -> Result<Type>
                 HELP - This message
                 GET - GET <key>
                 SET - SET <key> <value>
+                PUSH - PUSH <list name> <value1> <value2> ...
                 "#
                 .into(),
             )),

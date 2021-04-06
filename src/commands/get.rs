@@ -1,8 +1,8 @@
 //! Get command. See [Get command](https://redis.io/commands/get) for official documentation
 
+use super::{unwrap_or_err, CommandCreationError};
+use crate::resp::{Type, TypeConsumer};
 use std::collections::LinkedList;
-use crate::{resp::{Type, TypeConsumer}};
-use super::CommandCreationError;
 /// Holds key required for the [Get command](super::Command::Get)
 #[derive(Debug, PartialEq)]
 pub struct Get {
@@ -10,9 +10,14 @@ pub struct Get {
 }
 
 impl Get {
-    /// Returns an instance of [super::get::Get] 
+    /// Returns an instance of [super::get::Get]
     pub fn from(type_consumer: &mut TypeConsumer) -> Result<Self, CommandCreationError> {
-        let key = type_consumer.next_string().map_err(|t| CommandCreationError::InvalidFrame(t, "key"))?;
+        let key = unwrap_or_err(
+            type_consumer
+                .next_string()
+                .map_err(|t| CommandCreationError::InvalidFrame(t, "key"))?,
+            "key",
+        )?;
         Ok(Get { key })
     }
 }
@@ -28,8 +33,8 @@ impl From<Get> for Type {
 
 #[cfg(test)]
 mod test {
-    use crate::resp::{Type, TypeConsumer, TypeConsumerError, ConversionFailed};
     use super::CommandCreationError;
+    use crate::resp::{ConversionFailed, Type, TypeConsumer, TypeConsumerError};
 
     use super::Get;
 
@@ -47,10 +52,13 @@ mod test {
         let get = Get::from(&mut tc);
         assert_eq!(
             get,
-            Err(CommandCreationError::InvalidFrame(TypeConsumerError::ConversionFailed(ConversionFailed {
-                from: "Null".into(),
-                to: "String"
-            }), "key"))
+            Err(CommandCreationError::InvalidFrame(
+                TypeConsumerError::ConversionFailed(ConversionFailed {
+                    from: "Null".into(),
+                    to: "String"
+                }),
+                "key"
+            ))
         );
     }
 

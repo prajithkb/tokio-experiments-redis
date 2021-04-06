@@ -68,7 +68,7 @@ impl Display for Type {
             Type::Integer(i) => f.write_str(&i.to_string()),
             Type::Null => f.write_str("Null"),
             Type::BulkString(b) => f.write_fmt(format_args!("{:?}", b)),
-            Type::Array(a) =>f.write_fmt(format_args!("{:?}", a)),
+            Type::Array(a) => f.write_fmt(format_args!("{:?}", a)),
         }
     }
 }
@@ -145,8 +145,6 @@ pub struct ConversionFailed {
 pub enum TypeConsumerError {
     /// Indicates that conversion has failed (e.g. string to integer)
     ConversionFailed(ConversionFailed),
-    /// Indicates that the consumer is empty (this happens if you can `next` on a consumer that has finished)
-    Empty,
 }
 
 impl Error for TypeConsumerError {}
@@ -157,7 +155,7 @@ impl Display for TypeConsumerError {
     }
 }
 
-/// Creates a consumer that provides a `Iterator` like API for getting the next Type
+/// Creates a consumer that provides an `Iterator` like API for getting the next Type
 //
 /// Each [Type] is stored as a token. It provides convenient methods to extract `String`, `Integer` or `Bytes`
 #[derive(Debug, PartialEq)]
@@ -172,28 +170,28 @@ impl TypeConsumer {
     }
 
     /// Returns the next token as a [String] if possible or an error otherwise
-    pub fn next_string(&mut self) -> Result<String, TypeConsumerError> {
+    pub fn next_string(&mut self) -> Result<Option<String>, TypeConsumerError> {
         self.next_token::<String>(next_string)
     }
     /// Returns the next token as a [i64] if possible or an error otherwise
-    pub fn next_integer(&mut self) -> Result<i64, TypeConsumerError> {
+    pub fn next_integer(&mut self) -> Result<Option<i64>, TypeConsumerError> {
         self.next_token::<i64>(next_integer)
     }
     /// Returns the next token as a Bytes ([Vec]) if possible or an error otherwise
-    pub fn next_bytes(&mut self) -> Result<Vec<u8>, TypeConsumerError> {
+    pub fn next_bytes(&mut self) -> Result<Option<Vec<u8>>, TypeConsumerError> {
         self.next_token::<Vec<u8>>(next_bytes)
     }
 
     fn next_token<T>(
         &mut self,
         extractor: fn(Type) -> Result<T, TypeConsumerError>,
-    ) -> Result<T, TypeConsumerError> {
+    ) -> Result<Option<T>, TypeConsumerError> {
         match &mut self.inner {
             Some(t) => match t {
                 Type::Array(values) => next_token_from_values::<T>(values, extractor),
-                _ => extractor(self.inner.take().expect("Cannot be None")),
+                _ => extractor(self.inner.take().expect("Cannot be None")).map(Some),
             },
-            _ => Err(TypeConsumerError::Empty),
+            None => Ok(None),
         }
     }
 }
@@ -203,10 +201,10 @@ impl TypeConsumer {
 fn next_token_from_values<T>(
     values: &mut LinkedList<Type>,
     extractor: fn(Type) -> Result<T, TypeConsumerError>,
-) -> Result<T, TypeConsumerError> {
+) -> Result<Option<T>, TypeConsumerError> {
     match values.pop_front() {
-        Some(t) => extractor(t),
-        _ => Err(TypeConsumerError::Empty),
+        Some(t) => extractor(t).map(Some),
+        None => Ok(None),
     }
 }
 
@@ -255,14 +253,14 @@ mod test {
         // String
         let t = Type::SimpleString("Hello".into());
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_string(), Ok("Hello".to_string()));
-        assert_eq!(type_consumer.next_string(), Err(TypeConsumerError::Empty));
+        assert_eq!(type_consumer.next_string(), Ok(Some("Hello".to_string())));
+        assert_eq!(type_consumer.next_string(), Ok(None));
 
         // Bulk string
         let t = Type::BulkString(b"Hello".to_vec());
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_string(), Ok("Hello".to_string()));
-        assert_eq!(type_consumer.next_string(), Err(TypeConsumerError::Empty));
+        assert_eq!(type_consumer.next_string(), Ok(Some("Hello".to_string())));
+        assert_eq!(type_consumer.next_string(), Ok(None));
 
         // Integer
         let t = Type::Integer(34);
@@ -278,7 +276,7 @@ mod test {
         // Array
         let t = Type::Array(LinkedList::new());
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
+        assert_eq!(type_consumer.next_bytes(), Ok(None));
 
         let t = Type::Array(
             vec![Type::SimpleString("Hello".into())]
@@ -286,8 +284,8 @@ mod test {
                 .collect(),
         );
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_string(), Ok("Hello".to_string()));
-        assert_eq!(type_consumer.next_string(), Err(TypeConsumerError::Empty));
+        assert_eq!(type_consumer.next_string(), Ok(Some("Hello".to_string())));
+        assert_eq!(type_consumer.next_string(), Ok(None));
         // Null
         let t = Type::Null;
         let mut type_consumer = TypeConsumer::new(t);
@@ -327,18 +325,18 @@ mod test {
         // Integer
         let t = Type::Integer(34);
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_integer(), Ok(34));
-        assert_eq!(type_consumer.next_integer(), Err(TypeConsumerError::Empty));
+        assert_eq!(type_consumer.next_integer(), Ok(Some(34)));
+        assert_eq!(type_consumer.next_integer(), Ok(None));
 
         // Array
         let t = Type::Array(LinkedList::new());
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_integer(), Err(TypeConsumerError::Empty));
+        assert_eq!(type_consumer.next_integer(), Ok(None));
 
         let t = Type::Array(vec![Type::Integer(34)].into_iter().collect());
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_integer(), Ok(34));
-        assert_eq!(type_consumer.next_integer(), Err(TypeConsumerError::Empty));
+        assert_eq!(type_consumer.next_integer(), Ok(Some(34)));
+        assert_eq!(type_consumer.next_integer(), Ok(None));
         // Null
         let t = Type::Null;
         let mut type_consumer = TypeConsumer::new(t);
@@ -356,13 +354,19 @@ mod test {
         // String
         let t = Type::SimpleString("Hello".into());
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_bytes(), Ok("Hello".as_bytes().to_vec()));
-        assert_eq!(type_consumer.next_integer(), Err(TypeConsumerError::Empty));
+        assert_eq!(
+            type_consumer.next_bytes(),
+            Ok(Some("Hello".as_bytes().to_vec()))
+        );
+        assert_eq!(type_consumer.next_integer(), Ok(None));
         // Bulk string
         let t = Type::BulkString(b"Hello".to_vec());
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_bytes(), Ok("Hello".as_bytes().to_vec()));
-        assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
+        assert_eq!(
+            type_consumer.next_bytes(),
+            Ok(Some("Hello".as_bytes().to_vec()))
+        );
+        assert_eq!(type_consumer.next_bytes(), Ok(None));
 
         // Integer
         let t = Type::Integer(34);
@@ -378,7 +382,7 @@ mod test {
         // Array
         let t = Type::Array(LinkedList::new());
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
+        assert_eq!(type_consumer.next_bytes(), Ok(None));
 
         let t = Type::Array(
             vec![Type::BulkString(b"Hello".to_vec())]
@@ -386,8 +390,11 @@ mod test {
                 .collect(),
         );
         let mut type_consumer = TypeConsumer::new(t);
-        assert_eq!(type_consumer.next_bytes(), Ok("Hello".as_bytes().to_vec()));
-        assert_eq!(type_consumer.next_bytes(), Err(TypeConsumerError::Empty));
+        assert_eq!(
+            type_consumer.next_bytes(),
+            Ok(Some("Hello".as_bytes().to_vec()))
+        );
+        assert_eq!(type_consumer.next_bytes(), Ok(None));
         // Null
         let t = Type::Null;
         let mut type_consumer = TypeConsumer::new(t);

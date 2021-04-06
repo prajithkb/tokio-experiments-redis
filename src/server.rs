@@ -1,9 +1,9 @@
 //! The server module. This module implements a basic Tokio based server
 
 use crate::{
-    database::Database,
     commands::Command,
     connection,
+    database::Database,
     resp::{Type, TypeConsumer},
     Result,
 };
@@ -51,24 +51,30 @@ async fn process(socket: TcpStream, mut db: Database) {
     tokio::spawn(async move {
         loop {
             match read.recv().await {
-                Ok(t) => {
-                    info!("Received {}", t);
-                    let mut type_consumer = TypeConsumer::new(t);
-                    let command = Command::new(&mut type_consumer);
-                    let r = match command {
-                        Ok(command) => {
-                            info!("Received {:?}", command);
-                            let r = db.act(command);
-                            info!("Recieved {:?} from DB", r);
-                            response_sender.send(r.into()).await
+                Ok(t) => match t {
+                    Some(t) => {
+                        info!("Received {}", t);
+                        let mut type_consumer = TypeConsumer::new(t);
+                        let command = Command::new(&mut type_consumer);
+                        let r = match command {
+                            Ok(command) => {
+                                info!("Received {:?}", command);
+                                let r = db.act(command);
+                                info!("Recieved {:?} from DB", r);
+                                response_sender.send(r).await
+                            }
+                            // Error, response sender closed
+                            Err(e) => response_sender.send(error(e)).await,
+                        };
+                        if let Err(e) = r {
+                            error!("Error {}", e);
+                            break;
                         }
-                        Err(e) => response_sender.send(error(e)).await,
-                    };
-                    if r.is_err() {
-                        error!("Error {:?}", r);
-                        break;
                     }
-                }
+                    // Connection closed
+                    None => break,
+                },
+                // Connection read failure
                 Err(e) => {
                     error!("Error {}", e);
                     break;

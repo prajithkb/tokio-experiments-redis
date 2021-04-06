@@ -1,8 +1,8 @@
 //! Set command. See [Set command](https://redis.io/commands/set) for official documentation
 
-use std::collections::LinkedList;
+use super::{unwrap_or_err, CommandCreationError};
 use crate::resp::{Type, TypeConsumer};
-use super::CommandCreationError;
+use std::collections::LinkedList;
 /// Holds key and value required for the [Set command](super::Command::Set)
 #[derive(Debug, PartialEq)]
 pub struct Set {
@@ -11,10 +11,20 @@ pub struct Set {
 }
 
 impl Set {
-    /// Returns an instance of [super::get::Get] 
+    /// Returns an instance of [super::get::Get]
     pub fn from(type_consumer: &mut TypeConsumer) -> Result<Self, CommandCreationError> {
-        let key = type_consumer.next_string().map_err(|t| CommandCreationError::InvalidFrame(t, "key"))?;
-        let value = type_consumer.next_string().map_err(|t|CommandCreationError::InvalidFrame(t, "value"))?;
+        let key = unwrap_or_err(
+            type_consumer
+                .next_string()
+                .map_err(|t| CommandCreationError::InvalidFrame(t, "key"))?,
+            "key",
+        )?;
+        let value = unwrap_or_err(
+            type_consumer
+                .next_string()
+                .map_err(|t| CommandCreationError::InvalidFrame(t, "value"))?,
+            "value",
+        )?;
         Ok(Set { key, value })
     }
 }
@@ -31,19 +41,21 @@ impl From<Set> for Type {
 
 #[cfg(test)]
 mod test {
-    use crate::resp::{Type, TypeConsumer, TypeConsumerError};
     use super::CommandCreationError;
+    use crate::resp::{Type, TypeConsumer};
 
     use super::Set;
 
     #[test]
     fn from_works() {
-        let mut tc = TypeConsumer::new(Type::Array(vec![
-            Type::BulkString(b"Hello".to_vec()),
-            Type::BulkString(b"World".to_vec()),
-        ]
-        .into_iter()
-        .collect()));
+        let mut tc = TypeConsumer::new(Type::Array(
+            vec![
+                Type::BulkString(b"Hello".to_vec()),
+                Type::BulkString(b"World".to_vec()),
+            ]
+            .into_iter()
+            .collect(),
+        ));
         let set = Set::from(&mut tc).unwrap();
         assert_eq!(
             set,
@@ -52,25 +64,16 @@ mod test {
                 value: "World".into()
             }
         );
-        let mut tc = TypeConsumer::new(Type::Array(vec![
-        ]
-        .into_iter()
-        .collect()));
+        let mut tc = TypeConsumer::new(Type::Array(vec![].into_iter().collect()));
         let set = Set::from(&mut tc);
-        assert_eq!(
-            set,
-            Err(CommandCreationError::InvalidFrame(TypeConsumerError::Empty, "key"))
-        );
-        let mut tc = TypeConsumer::new(Type::Array(vec![
-            Type::BulkString(b"Hello".to_vec()),
-        ]
-        .into_iter()
-        .collect()));
+        assert_eq!(set, Err(CommandCreationError::MissingField("key".into())));
+        let mut tc = TypeConsumer::new(Type::Array(
+            vec![Type::BulkString(b"Hello".to_vec())]
+                .into_iter()
+                .collect(),
+        ));
         let set = Set::from(&mut tc);
-        assert_eq!(
-            set,
-            Err(CommandCreationError::InvalidFrame(TypeConsumerError::Empty, "value"))
-        )
+        assert_eq!(set, Err(CommandCreationError::MissingField("key".into())));
     }
 
     #[test]
