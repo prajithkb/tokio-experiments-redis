@@ -1,7 +1,10 @@
 use std::{
     collections::{HashMap, LinkedList},
+    fmt::Debug,
     sync::{Arc, Mutex, MutexGuard},
 };
+
+use log::debug;
 
 use crate::{
     commands::{get::Get, list::Push, set::Set, Command},
@@ -93,7 +96,6 @@ impl Database {
             Command::Get(g) => get(g, self),
             Command::Set(s) => set(s, self),
             Command::Push(p) => push(p, self),
-            // Command::Pop(k, u) => pop(k, u, self),
         }
     }
 }
@@ -126,44 +128,40 @@ fn push(p: Push, db: &mut Database) -> Type {
             // Not a a list return error
             // A list add these elements to it
             Value::List(list) => {
+                let len = p.values.len();
                 p.values
                     .into_iter()
                     .for_each(|i| list.push_back(Value::String(i.into())));
-                Type::Integer(list.len() as i64)
+                log_and_return(
+                    format!("Found list `{}`, and pushed {} elments", p.list_name, len),
+                    Type::Integer(list.len() as i64),
+                )
             }
-            _ => Type::Error(format!("{} is not a list", &p.list_name)),
+            _ => log_and_return(
+                format!("key `{}` is not a list", p.list_name),
+                Type::Error(format!(
+                    "key `{}` exists and it is not a list",
+                    &p.list_name
+                )),
+            ),
         },
         // There is no value, we will create one
         None => {
             let len = p.values.len();
+            let name = p.list_name.clone();
             db.insert(r_key, p.values.into());
-            Type::Integer(len as i64)
+            log_and_return(
+                format!("Created a new list {} and pushed {} elements", name, len),
+                Type::Integer(len as i64),
+            )
         }
     }
 }
 
-// fn pop(key: String, count: usize, db: &mut Database) -> Type {
-//     let db = db.lock_and_access();
-//     let r_key = key.into();
-//     match db.get(&r_key).cloned() {
-//         Some(v) => match v {
-//             _ => Type::Error(format!("{} is not a list", key)),
-//             Value::List(list) => {
-//                 let mut popped_elements: LinkedList<Type> = LinkedList::new();
-//                 for i in 0..count {
-//                     if let Some(v) = list.pop_back() {
-//                         let t: Type = v.into();
-//                         popped_elements.push_back(t);
-//                     } else {
-//                         break;
-//                     }
-//                 }
-//                 Type::Array(popped_elements)
-//             }
-//         },
-//         None => Type::Null,
-//     }
-// }
+fn log_and_return(message: String, result: Type) -> Type {
+    debug!("{}", message);
+    result
+}
 
 impl Clone for Database {
     fn clone(&self) -> Self {
