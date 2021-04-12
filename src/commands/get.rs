@@ -1,6 +1,6 @@
 //! Get command. See [Get command](https://redis.io/commands/get) for official documentation
 
-use super::{unwrap_or_err, CommandCreationError};
+use super::{extract_or_err, CommandCreationError};
 use crate::resp::{Type, TypeConsumer};
 use std::collections::LinkedList;
 /// Holds key required for the [Get command](super::Command::Get)
@@ -12,12 +12,7 @@ pub struct Get {
 impl Get {
     /// Returns an instance of [super::get::Get]
     pub fn from(type_consumer: &mut TypeConsumer) -> Result<Self, CommandCreationError> {
-        let key = unwrap_or_err(
-            type_consumer
-                .next_string()
-                .map_err(|t| CommandCreationError::InvalidFrame(t, "key"))?,
-            "key",
-        )?;
+        let key = extract_or_err(type_consumer.next_string(), "key")?;
         Ok(Get { key })
     }
 }

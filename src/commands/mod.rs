@@ -1,5 +1,5 @@
 //! The commands module, lists all the supported commands
-use self::{get::Get, list::Push, set::Set};
+use self::{get::Get, list::Push, set::Set, watch::Watch};
 use crate::resp::{Type, TypeConsumer, TypeConsumerError};
 use std::{error::Error, fmt::Display};
 /// The get command related data
@@ -8,6 +8,8 @@ pub mod get;
 pub mod list;
 /// The set command related data
 pub mod set;
+/// The watch commands module
+pub mod watch;
 
 /// All the supported commands
 #[derive(Debug, PartialEq)]
@@ -20,6 +22,10 @@ pub enum Command {
     /// Accepts a tuple of key (name of the list), list of elements
     /// Used to implement [Push](https://redis.io/commands/rpush)
     Push(Push),
+    /// A custom command to watch a particular key
+    /// Once in watch mode, the server will send any updates that happen for that key.
+    /// If the key does not exist, returns Error
+    Watch(Watch),
 }
 
 impl From<Command> for Type {
@@ -28,7 +34,7 @@ impl From<Command> for Type {
             Command::Get(g) => g.into(),
             Command::Set(s) => s.into(),
             Command::Push(p) => p.into(),
-            // Command::Pop(key, count) => Type::Integer(u.into())
+            Command::Watch(w) => w.into(),
         }
     }
 }
@@ -46,8 +52,12 @@ pub enum CommandCreationError {
 }
 
 /// Extracts the field or returns an error
-pub(crate) fn unwrap_or_err<T>(v: Option<T>, field: &str) -> Result<T, CommandCreationError> {
-    match v {
+pub(crate) fn extract_or_err<T>(
+    input: Result<Option<T>, TypeConsumerError>,
+    field: &'static str,
+) -> Result<T, CommandCreationError> {
+    let r = input.map_err(|t| CommandCreationError::InvalidFrame(t, field))?;
+    match r {
         Some(v) => Ok(v),
         None => Err(CommandCreationError::MissingField(field.into())),
     }
@@ -70,11 +80,12 @@ impl From<TypeConsumerError> for CommandCreationError {
 impl Command {
     /// Creates a new instance of a [Command]
     pub fn new(type_consumer: &mut TypeConsumer) -> Result<Command, CommandCreationError> {
-        let command = unwrap_or_err(type_consumer.next_string()?, "Command")?;
+        let command = extract_or_err(type_consumer.next_string(), "Command")?;
         match command.as_ref() {
             "GET" => Ok(Command::Get(Get::from(type_consumer)?)),
             "SET" => Ok(Command::Set(Set::from(type_consumer)?)),
             "PUSH" => Ok(Command::Push(Push::from(type_consumer)?)),
+            "WATCH" => Ok(Command::Watch(Watch::from(type_consumer)?)),
             _ => Err(CommandCreationError::UnSupportedCommand),
         }
     }

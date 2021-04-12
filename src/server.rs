@@ -11,7 +11,7 @@ use connection::Connection;
 use log::{error, info};
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::mpsc,
+    sync::mpsc::{self},
 };
 /// A simple Redis Server that uses Tokio
 #[derive(Debug, Default)]
@@ -41,7 +41,10 @@ impl RedisServer {
         }
     }
 }
+
 async fn process(socket: TcpStream, mut db: Database) {
+    let client_id = socket.peer_addr().expect("address cannot be empty");
+    info!("Processing bytes from client: {}", client_id);
     // create a connection (read and write halves)
     // This allows for independent io
     let (mut read, mut write) = Connection::new(socket).read_write_split();
@@ -59,7 +62,15 @@ async fn process(socket: TcpStream, mut db: Database) {
                         let r = match command {
                             Ok(command) => {
                                 info!("Received {:?}", command);
-                                let r = db.act(command);
+                                let r = match command {
+                                    Command::Get(g) => db.get(g),
+                                    Command::Set(s) => db.set(s),
+                                    Command::Push(p) => db.push(p),
+                                    Command::Watch(w) => {
+                                        info!("Client: {} will entering watch mode", client_id);
+                                        db.watch(w, response_sender.clone())
+                                    }
+                                };
                                 info!("Recieved {:?} from DB", r);
                                 response_sender.send(r).await
                             }

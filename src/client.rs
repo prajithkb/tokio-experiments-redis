@@ -4,14 +4,15 @@
 use std::collections::LinkedList;
 
 use log::debug;
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, sync::mpsc::Sender};
 
-use crate::Result;
 use crate::{
-    commands::{get::Get, list::Push, set::Set, Command},
+    commands::CommandCreationError,
+    commands::{get::Get, list::Push, set::Set, watch::Watch, watch::WatchResult, Command},
     connection::{Connection, ReadHalf, WriteHalf},
     resp::Type,
 };
+use crate::{database::Operation, Result};
 
 /// A RedisClient
 pub struct RedisClient {
@@ -48,6 +49,24 @@ impl RedisClient {
         let push = Command::Push(Push { list_name, values });
         debug!("{:?}", push);
         self.send(push.into()).await
+    }
+
+    /// push command
+    pub async fn watch(
+        &mut self,
+        key: String,
+        operation: Operation,
+        watcher: Sender<WatchResult>,
+    ) -> Result<()> {
+        let watch = Command::Watch(Watch { key, operation });
+        debug!("{:?}", watch);
+        self.write_half.send(watch.into()).await?;
+        while let Some(v) = self.read_half.recv().await? {
+            let watch_result = std::result::Result::<WatchResult, CommandCreationError>::from(v)?;
+            debug!("Read: {:?}", watch_result);
+            watcher.send(watch_result).await?;
+        }
+        Ok(())
     }
 
     async fn send(&mut self, t: Type) -> Result<Type> {

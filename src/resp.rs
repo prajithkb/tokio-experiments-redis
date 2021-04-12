@@ -182,6 +182,17 @@ impl TypeConsumer {
         self.next_token::<Vec<u8>>(next_bytes)
     }
 
+    /// Returns the next type
+    pub fn next_type(&mut self) -> Result<Option<Type>, TypeConsumerError> {
+        match &mut self.inner {
+            Some(t) => match t {
+                Type::Array(values) => Ok(values.pop_front()),
+                _ => Ok(self.inner.take()),
+            },
+            None => Ok(None),
+        }
+    }
+
     fn next_token<T>(
         &mut self,
         extractor: fn(Type) -> Result<T, TypeConsumerError>,

@@ -4,7 +4,7 @@ use std::collections::LinkedList;
 
 use crate::resp::{Type, TypeConsumer};
 
-use super::{unwrap_or_err, CommandCreationError};
+use super::{extract_or_err, CommandCreationError};
 
 /// The push command
 #[derive(Debug, PartialEq)]
@@ -18,7 +18,7 @@ pub struct Push {
 impl Push {
     /// Creates a Push type from [TypeConsumer]
     pub fn from(type_consumer: &mut TypeConsumer) -> Result<Self, CommandCreationError> {
-        let list_name = unwrap_or_err(type_consumer.next_string()?, "list name")?;
+        let list_name = extract_or_err(type_consumer.next_string(), "list name")?;
         let mut values = LinkedList::new();
         while let Some(item) = type_consumer.next_string()? {
             values.push_back(item)

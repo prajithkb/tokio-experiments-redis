@@ -1,15 +1,19 @@
 //! This is a cli used to send commands to redis. Under the hood it uses the client
 
 use log::info;
-use tokio::io::AsyncReadExt;
-use tokio_mini_redis::Result;
+use tokio::{
+    io::AsyncReadExt,
+    sync::mpsc::{self, Sender},
+};
 use tokio_mini_redis::{client::RedisClient, resp::Type};
+use tokio_mini_redis::{commands::watch::WatchResult, Result};
 
 use std::{
     collections::LinkedList,
     error::Error,
     fmt::Display,
     io::{stdout, Write},
+    str::Split,
 };
 use structopt::StructOpt;
 
@@ -42,29 +46,31 @@ async fn main() -> Result<()> {
     info!("Connected to {}", addr);
     let mut stdin = tokio::io::stdin();
     let mut buffer = [0; 512];
+    let (response_sender, mut response_receiver) = mpsc::channel::<WatchResult>(32);
+    tokio::spawn(async move {
+        while let Some(t) = response_receiver.recv().await {
+            println!("Watching --> {:?}", t);
+        }
+    });
     loop {
         prompt();
         // Allows for multi tasking between multiple branches
-        tokio::select! {
-            n = stdin.read(&mut buffer) => {
-                let num_bytes = n.unwrap();
-                let c = std::str::from_utf8(&buffer[0..num_bytes-1])?;
-                let v = send_command(c.into(), &mut client).await;
-                println!("=================================");
-                match v {
-                    Ok(t) => println!("Command=> {}\nResponse=> {}", c, print_type(t)),
-                    Err(e) => {
-                        let e :Box<CliError> = e.downcast::<CliError>().unwrap();
-                        if let CliError::Quit = *e {
-                            break;
-                        } else {
-                            println!("Command execution failed: {}", e);
-                        }
-                    }
+        let num_bytes = stdin.read(&mut buffer).await?;
+        let c = std::str::from_utf8(&buffer[0..num_bytes - 1])?;
+        let v = send_command(c.into(), &mut client, response_sender.clone()).await;
+        println!("=================================");
+        match v {
+            Ok(t) => println!("Command=> {}\nResponse=> {}", c, print_type(t)),
+            Err(e) => {
+                let e: Box<CliError> = e.downcast::<CliError>().unwrap();
+                if let CliError::Quit = *e {
+                    break;
+                } else {
+                    println!("Command execution failed: {}", e);
                 }
-                println!("=================================");
             }
         }
+        println!("=================================");
     }
     Ok(())
 }
@@ -82,45 +88,59 @@ fn prompt() {
     stdout.flush().unwrap();
 }
 
-async fn send_command(command: String, client: &mut RedisClient) -> Result<Type> {
+fn next<'a>(tokens: &'a mut Split<char>, field: &str) -> Result<String> {
+    let r = tokens
+        .next()
+        .ok_or_else(|| CliError::ClientError(format!("{} cannot be empty", field)))?;
+    Ok(r.into())
+}
+
+async fn send_command(
+    command: String,
+    client: &mut RedisClient,
+    sender: Sender<WatchResult>,
+) -> Result<Type> {
     let mut tokens = command.split(' ');
     if let Some(command) = tokens.next() {
         return match command.to_uppercase().as_ref() {
             "GET" => {
-                let key = tokens
-                    .next()
-                    .ok_or_else(|| CliError::ClientError("key cannot be empty".into()))?;
+                let key = next(&mut tokens, "key")?;
                 let t = client
-                    .get(key)
+                    .get(&key)
                     .await
                     .map_err(|e| CliError::ServerError(e.to_string()))?;
                 Ok(t)
             }
             "SET" => {
-                let key = tokens.next().ok_or_else(|| {
-                    CliError::ClientError("key cannot be empty, SET key value".into())
-                })?;
-                let value = tokens.next().ok_or_else(|| {
-                    CliError::ClientError("value cannot be empty, SET key value".into())
-                })?;
+                let key = next(&mut tokens, "key")?;
+                let value = next(&mut tokens, "value")?;
                 let t = client
-                    .set(key.into(), value.into())
+                    .set(key, value)
                     .await
                     .map_err(|e| CliError::ServerError(e.to_string()))?;
                 Ok(t)
             }
             "PUSH" => {
-                let list_name = tokens.next().ok_or_else(|| {
-                    CliError::ClientError(
-                        "list_name cannot be empty, PUSH list_name value1 value2..".into(),
-                    )
-                })?;
+                let list_name = next(&mut tokens, "list_name")?;
                 let values: LinkedList<String> = tokens.into_iter().map(|v| v.into()).collect();
                 let t = client
-                    .push(list_name.into(), values)
+                    .push(list_name, values)
                     .await
                     .map_err(|e| CliError::ServerError(e.to_string()))?;
                 Ok(t)
+            }
+            // Watch is a special command, once in watch mode, you cannot send any more requests
+            "WATCH" => {
+                let key = next(&mut tokens, "key")?;
+                let operation = next(&mut tokens, "operation")?;
+                let operation: u8 = operation.as_str().parse().map_err(|_| {
+                    CliError::ClientError(format!("Operation {} not a digit", operation))
+                })?;
+                client
+                    .watch(key, operation.into(), sender)
+                    .await
+                    .map_err(|e| CliError::ServerError(e.to_string()))?;
+                Ok(Type::Null)
             }
             "QUIT" => Err(CliError::Quit.into()),
             "HELP" => Ok(Type::SimpleString(
@@ -129,6 +149,7 @@ async fn send_command(command: String, client: &mut RedisClient) -> Result<Type>
                 GET - GET <key>
                 SET - SET <key> <value>
                 PUSH - PUSH <list name> <value1> <value2> ...
+                WATCH - WATCH <key> <1|2|3|4>
                 "#
                 .into(),
             )),

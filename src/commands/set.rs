@@ -1,6 +1,6 @@
 //! Set command. See [Set command](https://redis.io/commands/set) for official documentation
 
-use super::{unwrap_or_err, CommandCreationError};
+use super::{extract_or_err, CommandCreationError};
 use crate::resp::{Type, TypeConsumer};
 use std::collections::LinkedList;
 /// Holds key and value required for the [Set command](super::Command::Set)
@@ -13,18 +13,8 @@ pub struct Set {
 impl Set {
     /// Returns an instance of [super::get::Get]
     pub fn from(type_consumer: &mut TypeConsumer) -> Result<Self, CommandCreationError> {
-        let key = unwrap_or_err(
-            type_consumer
-                .next_string()
-                .map_err(|t| CommandCreationError::InvalidFrame(t, "key"))?,
-            "key",
-        )?;
-        let value = unwrap_or_err(
-            type_consumer
-                .next_string()
-                .map_err(|t| CommandCreationError::InvalidFrame(t, "value"))?,
-            "value",
-        )?;
+        let key = extract_or_err(type_consumer.next_string(), "key")?;
+        let value = extract_or_err(type_consumer.next_string(), "value")?;
         Ok(Set { key, value })
     }
 }
