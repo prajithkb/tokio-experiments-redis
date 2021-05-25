@@ -61,12 +61,14 @@ impl RedisClient {
         let watch = Command::Watch(Watch { key, operation });
         debug!("{:?}", watch);
         self.write_half.send(watch.into()).await?;
-        while let Some(v) = self.read_half.recv().await? {
-            let watch_result = std::result::Result::<WatchResult, CommandCreationError>::from(v)?;
+        // Blocks from here
+        loop {
+            let vv = self.read_half.recv().await?;
+            let watch_result =
+                std::result::Result::<WatchResult, CommandCreationError>::from(vv.unwrap())?;
             debug!("Read: {:?}", watch_result);
             watcher.send(watch_result).await?;
         }
-        Ok(())
     }
 
     async fn send(&mut self, t: Type) -> Result<Type> {

@@ -102,11 +102,12 @@ impl Parse {
             b'$' => {
                 let number = get_line(bytes)?;
                 // gets the number of bytes to read
-                let number_of_bytes: i64 =
-                    atoi::atoi(number).ok_or_else(|| ParseError::InvalidEncoding(format!(
+                let number_of_bytes: i64 = atoi::atoi(number).ok_or_else(|| {
+                    ParseError::InvalidEncoding(format!(
                         "Bulk String should start with a number, instead got {:?}",
                         std::str::from_utf8(number)
-                    )))?;
+                    ))
+                })?;
                 if number_of_bytes < 0 {
                     if number_of_bytes == -1 {
                         return Ok(Type::Null);
@@ -119,11 +120,12 @@ impl Parse {
             }
             b'*' => {
                 let number = get_line(bytes)?;
-                let number_of_elements: i64 =
-                    atoi::atoi(number).ok_or_else(|| ParseError::InvalidEncoding(format!(
+                let number_of_elements: i64 = atoi::atoi(number).ok_or_else(|| {
+                    ParseError::InvalidEncoding(format!(
                         "Array should start with a number, instead got {:?}",
                         std::str::from_utf8(number)
-                    )))?;
+                    ))
+                })?;
                 let mut types_array: LinkedList<Type> = LinkedList::new();
                 for _ in 0..number_of_elements {
                     match self.parse_next(bytes) {
@@ -195,10 +197,9 @@ fn parse_error(bytes: Vec<u8>) -> Result<Type, ParseError> {
     Ok(Type::Error(as_string(bytes)?))
 }
 fn parse_integer(bytes: Vec<u8>) -> Result<Type, ParseError> {
-    let integer = atoi(&bytes[..]).ok_or_else(|| ParseError::InvalidEncoding(format!(
-        "Expected integer, but got {:?}",
-        bytes
-    )))?;
+    let integer = atoi(&bytes[..]).ok_or_else(|| {
+        ParseError::InvalidEncoding(format!("Expected integer, but got {:?}", bytes))
+    })?;
     Ok(Type::Integer(integer))
 }
 fn parse_bulk_string(bytes: Vec<u8>) -> Result<Type, ParseError> {

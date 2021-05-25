@@ -1,8 +1,8 @@
-//! The connection module. 
+//! The connection module.
 //! This module encapsulates a connection and provides convenient (owned) read write accessors
-use std::io::{Cursor};
 use crate::Result;
 use log::{debug, trace};
+use std::io::Cursor;
 use tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -24,7 +24,7 @@ pub struct ReadHalf {
 }
 
 impl ReadHalf {
-    /// Receives [Type] 
+    /// Receives [Type]
     /// Attempts to wait for a value, returning an error if there is an error.
     pub async fn recv(&mut self) -> Result<Option<Type>> {
         // Read 512 bytes at a time
@@ -37,7 +37,7 @@ impl ReadHalf {
             let t = self.parse.parse_next(&mut cur)?;
             Ok(Some(t))
         } else {
-           Ok(None)
+            Ok(None)
         }
     }
 }
